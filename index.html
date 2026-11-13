@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SysView – Your Browser at a Glance</title>
+<meta name="description" content="See everything your browser reveals: IP, screen size, language, timezone, hardware, network and more.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
+<style>
+:root{--bg:#0b0f17;--card:#131a26;--line:#1f2a3b;--fg:#e6edf7;--mut:#8696ad;--acc:#4cc9f0;--acc2:#7c5cff;--ok:#3ddc97}
+:root[data-theme=light]{--bg:#f4f7fb;--card:#fff;--line:#dde5f0;--fg:#17202e;--mut:#5d6b80;--acc:#0a84c6;--acc2:#6c4bf0;--ok:#12a36a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+background-image:radial-gradient(circle at 15% 0%,rgba(124,92,255,.15),transparent 40%),radial-gradient(circle at 85% 10%,rgba(76,201,240,.12),transparent 40%)}
+header{max-width:1100px;margin:0 auto;padding:36px 20px 10px;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between}
+h1{margin:0;font-size:clamp(26px,5vw,38px);letter-spacing:-.5px;background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--mut);margin:4px 0 0}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:9px 14px;font:inherit;cursor:pointer;transition:.2s}
+button:hover{border-color:var(--acc);transform:translateY(-1px)}
+.hero{max-width:1100px;margin:14px auto 0;padding:0 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;position:relative;overflow:hidden}
+.stat b{display:block;font-size:22px;word-break:break-all}
+.stat span{color:var(--mut);font-size:13px}
+.stat::after{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:linear-gradient(90deg,var(--acc),var(--acc2))}
+main{max-width:1100px;margin:14px auto 50px;padding:0 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;animation:up .5s both}
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+section h2{margin:0 0 10px;font-size:15px;text-transform:uppercase;letter-spacing:1px;color:var(--acc)}
+.row{display:flex;justify-content:space-between;gap:14px;padding:7px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row .k{color:var(--mut);flex:none}
+.row .v{text-align:right;word-break:break-word;font-variant-numeric:tabular-nums;cursor:pointer}
+.row .v:hover{color:var(--acc)}
+.yes{color:var(--ok)}.no{color:var(--mut)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px;animation:pulse 1.6s infinite}
+@keyframes pulse{50%{opacity:.3}}
+footer{text-align:center;color:var(--mut);padding:0 20px 36px;font-size:13px}
+a{color:var(--acc)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,40px);background:var(--acc);color:#001018;padding:8px 16px;border-radius:99px;opacity:0;transition:.3s;font-weight:600}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>SysView</h1>
+    <p class="sub"><span class="dot"></span>Everything your browser reveals, processed locally.</p>
+  </div>
+  <div class="btns">
+    <button id="copy">Copy JSON</button>
+    <button id="refresh">Refresh</button>
+    <button id="theme">Theme</button>
+  </div>
+</header>
+
+<div class="hero" id="hero"></div>
+<main id="grid"></main>
+<footer>Click any value to copy it. Only the IP lookup contacts external services (ipify.org, ipwho.is). Everything else never leaves your browser.</footer>
+<div id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id)};
+var data={};
+var ipInfo=null;
+
+function toast(t){var e=$("toast");e.textContent=t;e.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(function(){e.classList.remove("show")},1400)}
+function copy(t){
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){toast("Copied")},function(){toast("Copy failed")})}
+  else{var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");toast("Copied")}catch(e){toast("Copy failed")}a.remove()}
+}
+function yn(b){return b?"✔ Yes":"✖ No"}
+function mq(q){return window.matchMedia&&window.matchMedia(q).matches}
+function safe(fn,fb){try{var v=fn();return v===undefined||v===null||v===""?(fb===undefined?"N/A":fb):v}catch(e){return fb===undefined?"N/A":fb}}
+
+function gpu(){
+  try{
+    var c=document.createElement("canvas"),g=c.getContext("webgl")||c.getContext("experimental-webgl");
+    if(!g)return {r:"WebGL unavailable",v:"N/A"};
+    var x=g.getExtension("WEBGL_debug_renderer_info");
+    return {r:x?g.getParameter(x.UNMASKED_RENDERER_WEBGL):g.getParameter(g.RENDERER),v:x?g.getParameter(x.UNMASKED_VENDOR_WEBGL):g.getParameter(g.VENDOR)};
+  }catch(e){return {r:"N/A",v:"N/A"}}
+}
+
+function collect(){
+  var n=navigator,s=screen,c=n.connection||n.mozConnection||n.webkitConnection,g=gpu(),tz=safe(function(){return Intl.DateTimeFormat().resolvedOptions().timeZone});
+  var off=-new Date().getTimezoneOffset(),sign=off>=0?"+":"-",ah=Math.floor(Math.abs(off)/60),am=Math.abs(off)%60;
+  var d={};
+  d["Screen"]={
+    "Screen size":s.width+" × "+s.height,
+    "Available size":s.availWidth+" × "+s.availHeight,
+    "Viewport":window.innerWidth+" × "+window.innerHeight,
+    "Pixel ratio":window.devicePixelRatio,
+    "Physical pixels":Math.round(s.width*window.devicePixelRatio)+" × "+Math.round(s.height*window.devicePixelRatio),
+    "Color depth":s.colorDepth+" bit",
+    "Orientation":safe(function(){return s.orientation.type}, innerWidth>innerHeight?"landscape":"portrait"),
+    "Color scheme":mq("(prefers-color-scheme: dark)")?"dark":"light",
+    "Reduced motion":yn(mq("(prefers-reduced-motion: reduce)")),
+    "HDR display":yn(mq("(dynamic-range: high)")),
+    "Fullscreen":yn(!!document.fullscreenElement)
+  };
+  d["Browser"]={
+    "User agent":n.userAgent,
+    "Platform":safe(function(){return (n.userAgentData&&n.userAgentData.platform)||n.platform}),
+    "Vendor":n.vendor||"N/A",
+    "Language":n.language,
+    "All languages":(n.languages||[n.language]).join(", "),
+    "Cookies enabled":yn(n.cookieEnabled),
+    "Do Not Track":n.doNotTrack==="1"||window.doNotTrack==="1"?"On":"Off / unset",
+    "Automation (webdriver)":yn(n.webdriver),
+    "PDF viewer":yn(n.pdfViewerEnabled),
+    "Mobile (UA hint)":safe(function(){return yn(n.userAgentData.mobile)}),
+    "Online":yn(n.onLine)
+  };
+  d["Hardware"]={
+    "CPU threads":safe(function(){return n.hardwareConcurrency}),
+    "Device memory":safe(function(){return n.deviceMemory?"≥ "+n.deviceMemory+" GB":undefined}),
+    "Touch points":n.maxTouchPoints||0,
+    "GPU renderer":g.r,
+    "GPU vendor":g.v,
+    "Hover capable":yn(mq("(hover: hover)")),
+    "Pointer":mq("(pointer: fine)")?"fine (mouse/trackpad)":mq("(pointer: coarse)")?"coarse (touch)":"none",
+    "Battery":"checking…"
+  };
+  d["Network"]={
+    "IP address":ipInfo?ipInfo.ip:"loading…",
+    "Country":ipInfo?ipInfo.country:"loading…",
+    "Region / City":ipInfo?ipInfo.place:"loading…",
+    "ISP / Org":ipInfo?ipInfo.isp:"loading…",
+    "Connection type":safe(function(){return c.effectiveType}),
+    "Downlink":safe(function(){return c.downlink?c.downlink+" Mbps":undefined}),
+    "Round-trip time":safe(function(){return c.rtt!==undefined?c.rtt+" ms":undefined}),
+    "Data saver":safe(function(){return yn(c.saveData)})
+  };
+  d["Time & Locale"]={
+    "Time zone":tz,
+    "UTC offset":"UTC"+sign+String(ah).padStart(2,"0")+":"+String(am).padStart(2,"0"),
+    "Local time":new Date().toLocaleString(),
+    "Locale":safe(function(){return Intl.DateTimeFormat().resolvedOptions().locale}),
+    "Calendar":safe(function(){return Intl.DateTimeFormat().resolvedOptions().calendar}),
+    "Number format":safe(function(){return new Intl.NumberFormat().format(1234567.89)}),
+    "First day of week":safe(function(){var l=new Intl.Locale(navigator.language);var w=(l.weekInfo||l.getWeekInfo&&l.getWeekInfo()||{}).firstDay;return w?["","Mon","Tue","Wed","Thu","Fri","Sat","Sun"][w]:undefined})
+  };
+  d["Storage & Page"]={
+    "localStorage":yn(safe(function(){localStorage.setItem("_t","1");localStorage.removeItem("_t");return true},false)),
+    "sessionStorage":yn(safe(function(){sessionStorage.setItem("_t","1");sessionStorage.removeItem("_t");return true},false)),
+    "IndexedDB":yn(!!window.indexedDB),
+    "Service workers":yn("serviceWorker" in n),
+    "Secure context":yn(window.isSecureContext),
+    "Referrer":document.referrer||"(none)",
+    "Page URL":location.href,
+    "History length":history.length,
+    "Storage quota":"checking…"
+  };
+  d["Feature Support"]={
+    "WebGL":yn(g.r!=="WebGL unavailable"),
+    "WebGL 2":yn(safe(function(){return !!document.createElement("canvas").getContext("webgl2")},false)),
+    "WebAssembly":yn(typeof WebAssembly==="object"),
+    "WebGPU":yn("gpu" in n),
+    "WebRTC":yn(!!window.RTCPeerConnection),
+    "WebSocket":yn("WebSocket" in window),
+    "Web Workers":yn("Worker" in window),
+    "Geolocation API":yn("geolocation" in n),
+    "Notifications":yn("Notification" in window),
+    "Clipboard API":yn(!!n.clipboard),
+    "Bluetooth":yn("bluetooth" in n),
+    "Gamepad":yn("getGamepads" in n),
+    "Speech synthesis":yn("speechSynthesis" in window)
+  };
+  return d;
+}
+
+function render(){
+  data=collect();
+  var grid=$("grid");grid.textContent="";
+  var i=0;
+  Object.keys(data).forEach(function(title){
+    var sec=document.createElement("section");sec.style.animationDelay=(i++*60)+"ms";
+    var h=document.createElement("h2");h.textContent=title;sec.appendChild(h);
+    Object.keys(data[title]).forEach(function(k){
+      var row=document.createElement("div");row.className="row";
+      var a=document.createElement("span");a.className="k";a.textContent=k;
+      var b=document.createElement("span");b.className="v";b.dataset.k=k;
+      var val=String(data[title][k]);b.textContent=val;
+      if(val.indexOf("✔")===0)b.classList.add("yes");else if(val.indexOf("✖")===0)b.classList.add("no");
+      b.title="Click to copy";
+      b.addEventListener("click",function(){copy(val)});
+      row.appendChild(a);row.appendChild(b);sec.appendChild(row);
+    });
+    grid.appendChild(sec);
+  });
+  hero();
+  async1();
+}
+
+function hero(){
+  var h=$("hero");h.textContent="";
+  var items=[
+    ["IP address",ipInfo?ipInfo.ip:"…"],
+    ["Screen",screen.width+" × "+screen.height],
+    ["Viewport",innerWidth+" × "+innerHeight],
+    ["Language",navigator.language],
+    ["Time zone",data["Time & Locale"]["Time zone"]]
+  ];
+  items.forEach(function(it){
+    var s=document.createElement("div");s.className="stat";
+    var b=document.createElement("b");b.textContent=it[1];
+    if(it[0]==="Viewport")b.id="vp";
+    var sp=document.createElement("span");sp.textContent=it[0];
+    s.appendChild(b);s.appendChild(sp);h.appendChild(s);
+  });
+}
+
+function setVal(key,val){
+  var els=document.querySelectorAll('.v[data-k="'+key.replace(/"/g,'\\"')+'"]');
+  for(var i=0;i<els.length;i++){els[i].textContent=val}
+  for(var t in data){if(data[t][key]!==undefined)data[t][key]=val}
+}
+
+function async1(){
+  if(navigator.getBattery){
+    navigator.getBattery().then(function(b){setVal("Battery",Math.round(b.level*100)+"% "+(b.charging?"(charging)":"(on battery)"))},function(){setVal("Battery","N/A")});
+  }else setVal("Battery","N/A (not exposed)");
+  if(navigator.storage&&navigator.storage.estimate){
+    navigator.storage.estimate().then(function(e){setVal("Storage quota",e.quota?(e.quota/1073741824).toFixed(1)+" GB":"N/A")},function(){setVal("Storage quota","N/A")});
+  }else setVal("Storage quota","N/A");
+  if(!ipInfo)fetchIP();
+}
+
+function fetchIP(){
+  var done=function(o){ipInfo=o;
+    setVal("IP address",o.ip);setVal("Country",o.country);setVal("Region / City",o.place);setVal("ISP / Org",o.isp);
+    hero();
+  };
+  fetch("https://ipwho.is/").then(function(r){return r.json()}).then(function(j){
+    if(!j||j.success===false)throw 0;
+    done({ip:j.ip,country:(j.flag&&j.flag.emoji?j.flag.emoji+" ":"")+j.country,place:[j.region,j.city].filter(Boolean).join(", ")||"N/A",isp:(j.connection&&(j.connection.isp||j.connection.org))||"N/A"});
+  }).catch(function(){
+    fetch("https://api64.ipify.org?format=json").then(function(r){return r.json()}).then(function(j){
+      done({ip:j.ip,country:"N/A",place:"N/A",isp:"N/A"});
+    }).catch(function(){
+      done({ip:"Unavailable (blocked or offline)",country:"N/A",place:"N/A",isp:"N/A"});
+    });
+  });
+}
+
+var rz;
+window.addEventListener("resize",function(){
+  clearTimeout(rz);rz=setTimeout(function(){
+    var v=innerWidth+" × "+innerHeight;
+    setVal("Viewport",v);var e=$("vp");if(e)e.textContent=v;
+    setVal("Orientation",safe(function(){return screen.orientation.type},innerWidth>innerHeight?"landscape":"portrait"));
+  },80);
+});
+window.addEventListener("online",function(){setVal("Online",yn(true))});
+window.addEventListener("offline",function(){setVal("Online",yn(false))});
+
+$("copy").addEventListener("click",function(){copy(JSON.stringify(data,null,2))});
+$("refresh").addEventListener("click",function(){ipInfo=null;render();toast("Refreshed")});
+$("theme").addEventListener("click",function(){
+  var r=document.documentElement,t=r.dataset.theme==="light"?"dark":"light";r.dataset.theme=t;
+  try{localStorage.setItem("sysview-theme",t)}catch(e){}
+});
+try{var st=localStorage.getItem("sysview-theme");if(st)document.documentElement.dataset.theme=st;
+else if(mq("(prefers-color-scheme: light)"))document.documentElement.dataset.theme="light"}catch(e){}
+
+render();
+})();
+</script>
+</body>
+</html>
