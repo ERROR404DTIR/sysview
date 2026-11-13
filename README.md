@@ -1,5 +1,7 @@
 <div align="center">
 
+<p align="center"><img src="assets/readme-banner.svg" alt="Animated Sysview dashboard banner" width="100%"></p>
+
 <img src="assets/banner.svg" alt="SysView" width="100%">
 
 **A zero-install dashboard that shows everything your browser reveals.**
